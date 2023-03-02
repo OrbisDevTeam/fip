@@ -1,0 +1,284 @@
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Planet Basemap</title>
+  <style>
+    html,
+    body,
+    #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+  </style>
+
+  <link rel="stylesheet" href="https://js.arcgis.com/4.24/esri/themes/light/main.css">
+  <script src="https://js.arcgis.com/4.24/"></script>
+
+  <script>
+
+
+  var view, vMap, print, qRy, qryTask, fdTask, fdParams, fipMapLayer;
+
+    require([     
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/WebMap",
+      "esri/request",
+      "esri/Color",
+      "esri/identity/IdentityManager",
+      "esri/widgets/LayerList",
+      "esri/layers/MapImageLayer",
+      "esri/layers/BaseTileLayer",
+      "esri/layers/support/TileInfo",
+      "esri/Basemap",
+      "esri/widgets/ScaleBar",
+      "esri/widgets/Expand",
+      "esri/widgets/Legend",
+      "esri/widgets/BasemapGallery",
+      "esri/Graphic",      
+      "esri/rest/find", 
+      "esri/rest/support/FindParameters"
+    ],(Map, MapView, WebMap, esriRequest, Color, esriID, LayerList, MapImageLayer, BaseTileLayer, TileInfo, BaseMap, ScaleBar, Expand, Legend, BasemapGallery, Graphic,  FindTask, FindParameters)=> {
+      
+     var authUrl = "https://www.arcgis.com/sharing/rest/oauth2/token?client_id=EYlMlnozVlV6Gg7E&client_secret=7f1bf9b6a54b43aa88110716f673ead8&grant_type=client_credentials";
+      
+    
+      esriRequest(authUrl, { responseType: "json" }).then(function(response){
+     
+        let tokJson = response.data;
+        var agolToken = {
+              'server': "https://www.arcgis.com/sharing/rest",
+              'token': tokJson.access_token,
+          };
+          esriID.registerToken(agolToken);       
+      });
+           
+          
+      
+      const CustomTileLayer = BaseTileLayer.createSubclass({
+          constructor() {
+            this.tileInfo = TileInfo.create({
+              size: 256,
+              spatialReference: { wkid: 102100 }
+            });
+          },
+          properties: {
+            urlTemplate: null            
+          },
+
+          // generate the tile url for a given level, row and column
+          getTileUrl: function (level, row, col) {
+            return this.urlTemplate
+              .replace("{z}", level)
+              .replace("{x}", col)
+              .replace("{y}", row);
+          }         
+          
+        });
+
+              
+      const planetTileLayer = new CustomTileLayer({
+        urlTemplate: "https://tiles.planet.com/basemaps/v1/planet-tiles/global_monthly_2023_01_mosaic/gmap/{z}/{x}/{y}.png?api_key=PLAKcd98df06340e4cdb98ab528cf1854ce3",
+        title: "Planet Imagery 2023 M1",
+        minScale: 10000,
+        maxScale: 5000
+      });
+
+     
+      var urlParams = new URLSearchParams(window.location.search);
+      var appUser = urlParams.get("appUser");
+      
+      
+
+      var queryParamValue = { "UserIDParam": appUser};
+      var paramString = "[{\"1\": " + JSON.stringify(queryParamValue) + "}]"; 
+            
+       
+        var webmap = new WebMap({
+          portalItem: {            
+            id: "72a7ded3ae3a4dfe80ffc38ca7d3dadd"
+          }
+        });
+
+        webmap.when(function () {
+          var allLayersAndSublayers = webmap.allLayers.flatten(function (item) { 
+            if(item.title.indexOf("_FIP_Mapservice") > -1){
+              
+
+              //update to get the layer from name 
+              fipMapLayer = item;          
+              fipMapLayer.customParameters = { 
+                "layerParameterValues": paramString  
+              };
+              fipMapLayer.refresh();
+              
+              fdParams = new FindParameters({               
+                returnGeometry: true
+              });
+              
+              item.watch('loaded', function(){     
+                                
+                //zoomToTract('428123');
+                //zoomToStand('428156003');
+                
+                return item.layers || item.sublayers;
+              });
+
+            }           
+          });
+
+                   
+
+        });               
+                
+
+        let customBasemap = new BaseMap({
+          baseLayers: [planetTileLayer],
+          title: "Planet Basemap",
+          id: "pltBasemap"
+        });
+               
+        
+       
+        view = new MapView({
+          map: webmap,
+          container: "viewDiv"
+        });
+
+        vMap = view.map;     
+        planetTileLayer.visible = false;
+        vMap.add(planetTileLayer,0);
+        vMap.basemap = "hybrid";
+        
+        let layerList = new LayerList({
+            view: view            
+          });
+
+        let legend = new Legend({
+            view: view
+        });
+
+        let basemapGallery = new BasemapGallery({
+            view: view
+        });
+
+
+        let layerListExpand = new Expand({
+          expandIconClass: "esri-icon-layers",  
+          expandTooltip: "Expand LayerList", 
+          view: view,
+          content: layerList,
+          group: "top-right"
+        });
+
+        let legendExpand = new Expand({
+          expandIconClass: "esri-icon-legend",  
+          expandTooltip: "Expand Legend", 
+          view: view,
+          content: legend,
+          group: "top-right"
+        });
+
+
+        let bmgExpand = new Expand({
+          expandIconClass: "esri-icon-basemap",  
+          expandTooltip: "Expand Basemaps", 
+          view: view,
+          content: basemapGallery,
+          group: "top-right"
+        });
+        
+        view.ui.add([layerListExpand, legendExpand, bmgExpand], "top-right");
+
+        let scaleBar = new ScaleBar({
+          view: view
+        });
+        // Add widget to the bottom left corner of the view
+        view.ui.add(scaleBar, {
+          position: "bottom-left"
+        });
+        
+        
+        
+
+        view.watch("scale", function(newValue, oldValue) {
+          
+          var vMap = view.map;
+          var stopPan = false;
+          
+
+          if (newValue < 10000 ) {           
+            
+            //view.on("drag", function (event) {
+            //  event.stopPropagation();
+            //});
+          }
+          else {
+           
+
+          }
+       });
+
+        
+
+
+       function addHighlightPoly(geom) {          
+          var highlightSymbol = {
+              type: "simple-line",
+              color: [0, 255, 255, 0.7],
+              width: "3px",
+          };
+          var highlight = new Graphic({
+              symbol: highlightSymbol,
+              geometry: geom
+          });
+          view.graphics.add(highlight);          
+       }
+
+       function showResults(response) {
+
+          var results = response.results; 
+          var graphic;
+          var items = [];
+          view.graphics.removeAll();
+          for (var i = 0, il = results.length; i < il; i++) {
+              graphic = results[i].feature;                
+              addHighlightPoly(graphic.geometry);               
+              items[i] = graphic;
+          }          
+          view.goTo(items);
+       }
+
+       function zoomToTract(tractKey){
+        fdParams = new FindParameters({               
+          layerIds: [0],
+          searchFields: ["TractKey"],
+          searchText: tractKey,
+          returnGeometry: true
+        });         
+        FindTask.find(fipMapLayer.url, fdParams).then(showResults);
+       }
+
+       function zoomToStand(standKey){
+        fdParams = new FindParameters({               
+          layerIds: [1],
+          searchFields: ["StandKey"],
+          searchText: standKey,
+          returnGeometry: true
+        });         
+        FindTask.find(fipMapLayer.url, fdParams).then(showResults);
+       }
+
+    });
+  </script>
+</head>
+
+<body>
+  <div id="viewDiv"></div>
+</body>
+
+</html>
